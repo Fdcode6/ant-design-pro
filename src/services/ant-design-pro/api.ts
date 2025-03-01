@@ -22,15 +22,37 @@ export async function outLogin(options?: { [key: string]: any }) {
 
 /** 登录接口 POST /api/login/account */
 export async function login(body: API.LoginParams, options?: { [key: string]: any }) {
-  const baseURL = 'http://localhost:8001'; // 确保这与后端服务器地址匹配
-  return request<API.LoginResult>(`${baseURL}/api/login/account`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    data: body,
-    ...(options || {}),
-  });
+  // 获取当前窗口的主机名和端口
+  const { protocol, hostname } = window.location;
+  // 使用当前窗口的主机名，但端口固定为8001（后端服务器端口）
+  const baseURL = `${protocol}//${hostname}:8001`;
+  
+  console.log('登录请求URL:', `${baseURL}/api/login/account`);
+  
+  // 使用fetch直接发送请求，而不是通过request
+  try {
+    const response = await fetch(`${baseURL}/api/login/account`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`请求失败: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('登录请求失败:', error);
+    return {
+      status: 'error',
+      type: body.type,
+      currentAuthority: 'guest',
+      msg: '网络请求失败，请检查网络连接',
+    };
+  }
 }
 
 /** 此处后端没有提供注释 GET /api/notices */

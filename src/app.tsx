@@ -28,35 +28,47 @@ export async function getInitialState(): Promise<{
       const userId = localStorage.getItem('userId');
       console.log('从localStorage获取到的userId:', userId);
       
-      // 获取baseURL
-      const baseURL = 'http://localhost:8001'; // 确保这与后端服务器地址匹配
-      
-      // 发起请求获取用户信息
-      const apiUrl = `${baseURL}/api/currentUser` + (userId ? `?userId=${userId}` : '');
-      console.log('请求用户信息, URL:', apiUrl);
-      
-      const response = await fetch(apiUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-      });
-      
-      if (!response.ok) {
-        console.error('请求用户信息失败, 状态码:', response.status);
-        throw new Error(`请求失败: ${response.status}`);
+      if (!userId) {
+        console.error('没有找到userId，无法获取用户信息');
+        return undefined;
       }
       
-      const data = await response.json();
-      console.log('获取到的用户信息响应:', data);
+      // 获取当前窗口的主机名和端口
+      const { protocol, hostname } = window.location;
+      // 使用当前窗口的主机名，但端口固定为8001（后端服务器端口）
+      const baseURL = `${protocol}//${hostname}:8001`;
       
-      if (data.success) {
-        console.log('成功获取用户信息');
-        return data.data;
-      } else {
-        console.error('获取用户信息失败:', data);
-        throw new Error('获取用户信息失败: ' + (data.error || '未知错误'));
+      // 发起请求获取用户信息
+      const apiUrl = `${baseURL}/api/currentUser?userId=${userId}`;
+      console.log('请求用户信息, URL:', apiUrl);
+      
+      try {
+        const response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+        });
+        
+        if (!response.ok) {
+          console.error('请求用户信息失败, 状态码:', response.status);
+          throw new Error(`请求失败: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log('获取到的用户信息响应:', data);
+        
+        if (data.success) {
+          console.log('成功获取用户信息');
+          return data.data;
+        } else {
+          console.error('获取用户信息失败:', data);
+          throw new Error('获取用户信息失败: ' + (data.error || '未知错误'));
+        }
+      } catch (fetchError) {
+        console.error('获取用户信息请求失败:', fetchError);
+        throw fetchError;
       }
     } catch (error) {
       console.error('获取用户信息失败', error);
@@ -86,7 +98,7 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
   const [access] = useState(initialState?.currentUser?.access);
   
   return {
-    actionsRender: () => [<Question key="doc" />, <SelectLang key="SelectLang" />],
+    actionsRender: () => [<SelectLang key="SelectLang" />],
     avatarProps: {
       src: initialState?.currentUser?.avatar,
       title: <AvatarName />,
@@ -204,7 +216,10 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
  */
 export const request: RequestConfig = {
   ...errorConfig,
-  baseURL: 'http://localhost:8001',
+  // 动态设置baseURL，确保在不同设备上都能正确连接到后端
+  baseURL: typeof window !== 'undefined' 
+    ? `${window.location.protocol}//${window.location.hostname}:8001` 
+    : 'http://localhost:8001',
   // 响应拦截器
   responseInterceptors: [
     (response) => {

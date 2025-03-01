@@ -20,6 +20,7 @@ export type UserItem = {
   balance: number;
   createdAt: Date;
   status: string;
+  role?: string;
 };
 
 const UserManagement: React.FC = () => {
@@ -61,6 +62,15 @@ const UserManagement: React.FC = () => {
       valueEnum: {
         active: { text: '正常', status: 'Success' },
         inactive: { text: '禁用', status: 'Error' },
+      },
+    },
+    {
+      title: '角色',
+      dataIndex: 'role',
+      width: 100,
+      valueEnum: {
+        admin: { text: '管理员', status: 'Warning' },
+        user: { text: '普通用户', status: 'Default' },
       },
     },
     {
@@ -193,12 +203,13 @@ const UserManagement: React.FC = () => {
   };
 
   const handleCreateUser = async (values: any) => {
-    const { username, realName, password, initialBalance } = values;
+    const { username, realName, password, initialBalance, role } = values;
     return createUser({
       username,
       realName,
       password,
       initialBalance: Number(initialBalance),
+      role: role || 'user',
     });
   };
 
@@ -256,6 +267,16 @@ const UserManagement: React.FC = () => {
               rules={[{ required: true, message: '请输入初始余额' }]}
               min={0}
               fieldProps={{ precision: 2 }}
+            />
+            <ProFormSelect
+              name="role"
+              label="角色"
+              valueEnum={{
+                admin: '管理员',
+                user: '普通用户',
+              }}
+              initialValue="user"
+              rules={[{ required: true, message: '请选择角色' }]}
             />
           </ModalForm>,
         ]}

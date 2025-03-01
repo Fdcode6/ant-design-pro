@@ -36,7 +36,7 @@ app.use(bodyParser.json());
 (async () => {
   try {
     // 先检查role字段是否存在
-    const [columns] = await pool.query<RowDataPacket[]>(`
+    const [roleColumns] = await pool.query<RowDataPacket[]>(`
       SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
       WHERE TABLE_SCHEMA = DATABASE() 
       AND TABLE_NAME = 'users' 
@@ -44,7 +44,7 @@ app.use(bodyParser.json());
     `);
     
     // 如果字段不存在，则添加
-    if (columns[0].count === 0) {
+    if (roleColumns[0].count === 0) {
       try {
         await pool.query(`
           ALTER TABLE users 
@@ -90,10 +90,22 @@ app.post('/api/login/account', async (req, res) => {
       });
     }
 
-    // 登录成功，根据用户名判断角色
-    // 如果用户名是admin则为管理员，否则为普通用户
-    const userRole = username === 'admin' ? 'admin' : 'user';
-    const userId = users[0].id;
+    const user = users[0];
+    
+    // 检查用户状态，如果被禁用则拒绝登录
+    if (user.status === 'inactive') {
+      console.log('禁止登录 - 用户已被禁用:', username);
+      return res.json({
+        status: 'error',
+        type,
+        currentAuthority: 'guest',
+        msg: '账号已被禁用，请联系管理员',
+      });
+    }
+
+    // 登录成功，使用数据库中存储的角色
+    const userRole = user.role || (username === 'admin' ? 'admin' : 'user');
+    const userId = user.id;
     
     return res.json({
       status: 'ok',
@@ -136,7 +148,7 @@ app.get('/api/currentUser', async (req, res) => {
     // 查询用户信息
     console.log('正在查询用户信息...');
     const [users] = await pool.query<UserRow[]>(
-      'SELECT id, username, real_name, role FROM users WHERE id = ?',
+      'SELECT id, username, real_name, role, status FROM users WHERE id = ?',
       [userId]
     );
     console.log('查询结果:', users);
@@ -152,6 +164,15 @@ app.get('/api/currentUser', async (req, res) => {
     const user = users[0];
     console.log('找到用户:', user);
     
+    // 检查用户状态，如果被禁用则拒绝访问
+    if (user.status === 'inactive') {
+      console.log('用户已被禁用:', userId);
+      return res.status(403).json({
+        success: false,
+        error: '账号已被禁用，请联系管理员',
+      });
+    }
+    
     // 使用数据库中存储的角色，如果没有则根据用户名判断
     const role = user.role || (user.username === 'admin' ? 'admin' : 'user');
     
@@ -160,10 +181,11 @@ app.get('/api/currentUser', async (req, res) => {
       avatar: 'https://gw.alipayobjects.com/zos/antfincdn/XAosXuNZyF/BiazfanxmamNRoxxVxka.png',
       userid: user.id.toString(),
       email: `${user.username}@example.com`,
-      signature: '云仓管理系统',
+      signature: '芊寻云仓通',
       title: role === 'admin' ? '管理员' : '普通用户',
-      group: '云仓科技',
+      group: '芊寻科技',
       access: role,
+      status: user.status,
     };
     
     console.log('返回用户数据:', userData);
@@ -493,7 +515,7 @@ app.get('/api/users/options', async (_req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 8001;
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+const PORT = process.env.PORT ? parseInt(process.env.PORT) : 8001;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server is running on port ${PORT}, listening on all interfaces`);
 }); 

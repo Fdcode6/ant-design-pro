@@ -24,6 +24,7 @@ export async function createUser(data: {
   realName: string;
   password: string;
   initialBalance: number;
+  role?: string;
 }) {
   return request<{
     success: boolean;
