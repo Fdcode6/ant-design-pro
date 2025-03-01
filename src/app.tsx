@@ -3,11 +3,12 @@ import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
 import { LinkOutlined } from '@ant-design/icons';
 import type { Settings as LayoutSettings } from '@ant-design/pro-components';
 import { SettingDrawer } from '@ant-design/pro-components';
-import type { RunTimeLayoutConfig } from '@umijs/max';
+import type { RunTimeLayoutConfig, RequestConfig } from '@umijs/max';
 import { history, Link } from '@umijs/max';
-import React from 'react';
+import React, { useState } from 'react';
 import defaultSettings from '../config/defaultSettings';
 import { errorConfig } from './requestErrorConfig';
+import { message } from 'antd';
 
 const isDev = process.env.NODE_ENV === 'development';
 const loginPath = '/user/login';
@@ -23,14 +24,45 @@ export async function getInitialState(): Promise<{
 }> {
   const fetchUserInfo = async () => {
     try {
-      const msg = await queryCurrentUser({
-        skipErrorHandler: true,
+      // 从localStorage获取用户ID
+      const userId = localStorage.getItem('userId');
+      console.log('从localStorage获取到的userId:', userId);
+      
+      // 获取baseURL
+      const baseURL = 'http://localhost:8001'; // 确保这与后端服务器地址匹配
+      
+      // 发起请求获取用户信息
+      const apiUrl = `${baseURL}/api/currentUser` + (userId ? `?userId=${userId}` : '');
+      console.log('请求用户信息, URL:', apiUrl);
+      
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
       });
-      return msg.data;
+      
+      if (!response.ok) {
+        console.error('请求用户信息失败, 状态码:', response.status);
+        throw new Error(`请求失败: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('获取到的用户信息响应:', data);
+      
+      if (data.success) {
+        console.log('成功获取用户信息');
+        return data.data;
+      } else {
+        console.error('获取用户信息失败:', data);
+        throw new Error('获取用户信息失败: ' + (data.error || '未知错误'));
+      }
     } catch (error) {
-      history.push(loginPath);
+      console.error('获取用户信息失败', error);
+      // 不再自动跳转到登录页，让调用者处理错误
+      return undefined;
     }
-    return undefined;
   };
   // 如果不是登录页面，执行
   const { location } = history;
@@ -50,6 +82,9 @@ export async function getInitialState(): Promise<{
 
 // ProLayout 支持的api https://procomponents.ant.design/components/layout
 export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) => {
+  // 保存当前用户角色状态
+  const [access] = useState(initialState?.currentUser?.access);
+  
   return {
     actionsRender: () => [<Question key="doc" />, <SelectLang key="SelectLang" />],
     avatarProps: {
@@ -124,6 +159,41 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
       );
     },
     ...initialState?.settings,
+    // 菜单权限控制
+    menu: {
+      locale: true,
+      // 根据用户角色过滤菜单
+      params: {
+        userRole: access || 'user', // 默认为普通用户
+      },
+      request: async (params, defaultMenuData) => {
+        // 如果是普通用户，过滤掉不应该显示的菜单
+        if (params.userRole !== 'admin') {
+          return defaultMenuData.filter((item: any) => item.path !== '/user-management');
+        }
+        return defaultMenuData;
+      },
+    },
+    // 根据返回值判断页面是否有权限访问
+    // 不需要权限的路由始终返回 true
+    // 需要权限的路由根据当前用户权限判断
+    access: (route: {path?: string}) => {
+      // 仪表盘和余额管理页面所有人都可以访问
+      if (
+        route.path === '/dashboard' || 
+        route.path === '/balance-management'
+      ) {
+        return true;
+      }
+      
+      // 用户管理页面仅管理员可以访问
+      if (route.path === '/user-management') {
+        return access === 'admin';
+      }
+      
+      // 其他情况默认放行
+      return true;
+    },
   };
 };
 
@@ -132,6 +202,13 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
  * 它基于 axios 和 ahooks 的 useRequest 提供了一套统一的网络请求和错误处理方案。
  * @doc https://umijs.org/docs/max/request#配置
  */
-export const request = {
+export const request: RequestConfig = {
   ...errorConfig,
+  baseURL: 'http://localhost:8001',
+  // 响应拦截器
+  responseInterceptors: [
+    (response) => {
+      return response;
+    },
+  ],
 };

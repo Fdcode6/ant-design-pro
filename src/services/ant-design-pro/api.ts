@@ -22,7 +22,8 @@ export async function outLogin(options?: { [key: string]: any }) {
 
 /** 登录接口 POST /api/login/account */
 export async function login(body: API.LoginParams, options?: { [key: string]: any }) {
-  return request<API.LoginResult>('/api/login/account', {
+  const baseURL = 'http://localhost:8001'; // 确保这与后端服务器地址匹配
+  return request<API.LoginResult>(`${baseURL}/api/login/account`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

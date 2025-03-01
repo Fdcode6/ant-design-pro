@@ -124,9 +124,68 @@ const Login: React.FC = () => {
           defaultMessage: '登录成功！',
         });
         message.success(defaultLoginSuccessMessage);
-        await fetchUserInfo();
-        const urlParams = new URL(window.location.href).searchParams;
-        history.push(urlParams.get('redirect') || '/');
+        
+        // 保存用户ID到localStorage
+        if (msg.userId) {
+          localStorage.setItem('userId', msg.userId.toString());
+          console.log('已保存用户ID到localStorage:', msg.userId);
+        } else {
+          console.warn('登录响应中没有userId');
+        }
+        
+        try {
+          // 尝试获取用户信息
+          console.log('正在获取用户信息...');
+          
+          // 直接使用fetch获取用户信息，避免使用可能配置错误的initialState.fetchUserInfo
+          const userId = msg.userId;
+          const baseURL = 'http://localhost:8001'; // 确保这与后端服务器地址匹配
+          const apiUrl = `${baseURL}/api/currentUser?userId=${userId}`;
+          
+          console.log('直接请求用户信息, URL:', apiUrl);
+          const response = await fetch(apiUrl, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+          });
+          
+          if (!response.ok) {
+            throw new Error(`请求失败: ${response.status}`);
+          }
+          
+          const data = await response.json();
+          console.log('获取到的用户信息响应:', data);
+          
+          if (data.success && data.data) {
+            // 更新initialState
+            flushSync(() => {
+              setInitialState((s) => ({
+                ...s,
+                currentUser: data.data,
+              }));
+            });
+            
+            console.log('已更新initialState');
+            
+            // 添加延迟后再跳转，确保状态已更新
+            setTimeout(() => {
+              const urlParams = new URL(window.location.href).searchParams;
+              const redirect = urlParams.get('redirect') || '/';
+              console.log('即将跳转到:', redirect);
+              history.push(redirect);
+            }, 100);
+          } else {
+            console.error('获取用户信息失败，响应数据无效');
+            // 直接跳转到首页
+            history.push('/');
+          }
+        } catch (fetchError) {
+          console.error('获取用户信息时出错:', fetchError);
+          // 出错时也直接跳转到首页
+          history.push('/');
+        }
         return;
       }
       console.log(msg);
