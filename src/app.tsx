@@ -35,8 +35,8 @@ export async function getInitialState(): Promise<{
       
       // 获取当前窗口的主机名和端口
       const { protocol, hostname } = window.location;
-      // 使用当前窗口的主机名，但端口固定为8001（后端服务器端口）
-      const baseURL = `${protocol}//${hostname}:8001`;
+      // 使用当前域名，不再指定端口
+      const baseURL = `${protocol}//${hostname}`;
       
       // 发起请求获取用户信息
       const apiUrl = `${baseURL}/api/currentUser?userId=${userId}`;
@@ -218,8 +218,8 @@ export const request: RequestConfig = {
   ...errorConfig,
   // 动态设置baseURL，确保在不同设备上都能正确连接到后端
   baseURL: typeof window !== 'undefined' 
-    ? `${window.location.protocol}//${window.location.hostname}:8001` 
-    : 'http://localhost:8001',
+    ? `${window.location.protocol}//${window.location.hostname}` 
+    : 'http://localhost',
   // 响应拦截器
   responseInterceptors: [
     (response) => {

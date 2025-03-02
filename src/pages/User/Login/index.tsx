@@ -114,8 +114,8 @@ const Login: React.FC = () => {
           const userId = msg.userId;
           // 获取当前窗口的主机名和端口
           const { protocol, hostname } = window.location;
-          // 使用当前窗口的主机名，但端口固定为8001（后端服务器端口）
-          const baseURL = `${protocol}//${hostname}:8001`;
+          // 使用当前域名，不再指定端口
+          const baseURL = `${protocol}//${hostname}`;
           const apiUrl = `${baseURL}/api/currentUser?userId=${userId}`;
           
           console.log('直接请求用户信息, URL:', apiUrl);

@@ -24,8 +24,8 @@ export async function outLogin(options?: { [key: string]: any }) {
 export async function login(body: API.LoginParams, options?: { [key: string]: any }) {
   // 获取当前窗口的主机名和端口
   const { protocol, hostname } = window.location;
-  // 使用当前窗口的主机名，但端口固定为8001（后端服务器端口）
-  const baseURL = `${protocol}//${hostname}:8001`;
+  // 使用当前域名，不再指定端口
+  const baseURL = `${protocol}//${hostname}`;
   
   console.log('登录请求URL:', `${baseURL}/api/login/account`);
   
