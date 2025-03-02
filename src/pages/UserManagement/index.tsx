@@ -122,17 +122,19 @@ const UserManagement: React.FC = () => {
           />
         </ModalForm>,
         <ModalForm
-          key="balance"
-          title="余额调整"
-          trigger={<a>余额调整</a>}
+          key="increase"
+          title="增加余额"
+          trigger={<a>增加余额</a>}
           autoFocusFirstInput
           modalProps={{
             destroyOnClose: true,
           }}
           onFinish={async (values) => {
+            // 设置操作类型为增加
+            values.type = 'increase';
             const success = await handleAdjustBalance(record.id, values);
             if (success) {
-              message.success('调整成功');
+              message.success('增加余额成功');
               actionRef.current?.reload();
               return true;
             }
@@ -146,19 +148,41 @@ const UserManagement: React.FC = () => {
             min={0.01}
             fieldProps={{ precision: 2 }}
           />
-          <ProFormSelect
-            name="type"
-            label="操作类型"
-            rules={[{ required: true, message: '请选择操作类型' }]}
-            valueEnum={{
-              increase: '增加',
-              decrease: '扣除',
-            }}
+          <ProFormText
+            name="reason"
+            label="调整原因"
+          />
+        </ModalForm>,
+        <ModalForm
+          key="decrease"
+          title="扣除余额"
+          trigger={<a>扣除余额</a>}
+          autoFocusFirstInput
+          modalProps={{
+            destroyOnClose: true,
+          }}
+          onFinish={async (values) => {
+            // 设置操作类型为扣除
+            values.type = 'decrease';
+            const success = await handleAdjustBalance(record.id, values);
+            if (success) {
+              message.success('扣除余额成功');
+              actionRef.current?.reload();
+              return true;
+            }
+            return false;
+          }}
+        >
+          <ProFormDigit
+            name="amount"
+            label="金额"
+            rules={[{ required: true, message: '请输入金额' }]}
+            min={0.01}
+            fieldProps={{ precision: 2 }}
           />
           <ProFormText
             name="reason"
             label="调整原因"
-            rules={[{ required: true, message: '请输入调整原因' }]}
           />
         </ModalForm>,
       ],

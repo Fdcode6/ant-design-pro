@@ -275,19 +275,12 @@ app.get('/api/users/:id', async (req, res) => {
 // 创建用户
 app.post('/api/users', async (req, res) => {
   try {
-    const { username, realName, password, initialBalance, role } = req.body;
+    const { username, realName, password, initialBalance, role = 'user' } = req.body;
     
     // 构建查询
-    let query = 'INSERT INTO users (username, real_name, password, balance, status';
-    let placeholders = '(?, ?, ?, ?, ?';
-    const params: any[] = [username, realName, password, initialBalance, 'active'];
-    
-    // 如果提供了角色，则添加
-    if (role) {
-      query += ', role';
-      placeholders += ', ?';
-      params.push(role);
-    }
+    let query = 'INSERT INTO users (username, real_name, password, balance, status, role';
+    let placeholders = '(?, ?, ?, ?, ?, ?';
+    const params: any[] = [username, realName, password, initialBalance, 'active', role];
     
     // 完成查询
     query += ') VALUES ' + placeholders + ')';
@@ -337,7 +330,7 @@ app.post('/api/users/:id/balance', async (req, res) => {
   try {
     await connection.beginTransaction();
     const { id } = req.params;
-    const { type, amount, reason } = req.body;
+    const { type, amount, reason = '' } = req.body;
     const operator = 'admin'; // 这里应该从认证信息中获取
 
     console.log('处理余额调整:', { id, type, amount, reason });

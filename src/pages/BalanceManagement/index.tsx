@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { PlusOutlined } from '@ant-design/icons';
-import { ProTable, ActionType, ProFormInstance } from '@ant-design/pro-components';
+import { ProTable, ActionType, ProFormInstance, ProColumns } from '@ant-design/pro-components';
 import { Button, Tag, message, Modal, Form, Radio, InputNumber, Input, Select } from 'antd';
 import dayjs from 'dayjs';
 import { useModel, request } from '@umijs/max';
@@ -16,6 +16,7 @@ interface TransactionRecord {
   reason: string;
   operator: string;
   createdAt: Date;
+  created_at: string; // 添加这个字段以匹配API返回
 }
 
 // 余额调整表单
@@ -23,12 +24,6 @@ interface AdjustBalanceForm {
   type: 'increase' | 'decrease';
   amount: number;
   reason: string;
-}
-
-// 用户选项类型
-interface UserOption {
-  value: string;
-  label: string;
 }
 
 const BalanceManagement: React.FC = () => {
@@ -42,26 +37,6 @@ const BalanceManagement: React.FC = () => {
   const [form] = Form.useForm();
   const [adjustModalVisible, setAdjustModalVisible] = React.useState(false);
   const [adjustingUser, setAdjustingUser] = React.useState<{ id: string, username: string } | null>(null);
-  const [userOptions, setUserOptions] = React.useState<UserOption[]>([]);
-  const [selectedUser, setSelectedUser] = React.useState<string | null>(null);
-
-  // 获取用户选项列表
-  const fetchUserOptions = async () => {
-    try {
-      const response = await request('/api/users/options');
-      if (response.success) {
-        setUserOptions(
-          response.data.map((user: any) => ({
-            value: user.id.toString(),
-            label: `${user.username}${user.realName ? `(${user.realName})` : ''}`,
-          }))
-        );
-      }
-    } catch (error) {
-      console.error('获取用户选项失败:', error);
-      message.error('获取用户列表失败');
-    }
-  };
 
   // 打开余额调整窗口
   const handleAdjustBalance = (record: TransactionRecord) => {
@@ -73,23 +48,14 @@ const BalanceManagement: React.FC = () => {
     setAdjustModalVisible(true);
   };
 
-  // 打开充值窗口（管理员功能）
-  const handleAddBalance = () => {
-    setAdjustingUser(null);
-    form.resetFields();
-    setSelectedUser(null);
-    setAdjustModalVisible(true);
-    fetchUserOptions();
-  };
-
   // 提交余额调整
   const handleAdjustBalanceSubmit = async () => {
     try {
       const values = await form.validateFields();
-      const userId = adjustingUser?.id || selectedUser;
+      const userId = adjustingUser?.id;
 
       if (!userId) {
-        message.error('请选择用户');
+        message.error('用户ID不存在');
         return;
       }
 
@@ -116,7 +82,7 @@ const BalanceManagement: React.FC = () => {
     }
   };
 
-  const columns = [
+  const columns: ProColumns<TransactionRecord>[] = [
     {
       title: '交易ID',
       dataIndex: 'id',
@@ -150,7 +116,7 @@ const BalanceManagement: React.FC = () => {
           status: 'Error',
         },
       },
-      render: (_, record) => (
+      render: (_: any, record: TransactionRecord) => (
         <Tag color={record.type === 'increase' ? 'green' : 'red'}>
           {record.type === 'increase' ? '充值' : '消费'}
         </Tag>
@@ -160,7 +126,7 @@ const BalanceManagement: React.FC = () => {
       title: '金额',
       dataIndex: 'amount',
       search: false,
-      render: (_, record) => (
+      render: (_: any, record: TransactionRecord) => (
         <span style={{ color: record.type === 'increase' ? 'green' : 'red' }}>
           {record.type === 'increase' ? '+' : '-'}
           {record.amount}
@@ -189,7 +155,7 @@ const BalanceManagement: React.FC = () => {
       valueType: 'dateTime',
       sorter: true,
       search: false,
-      render: (_, record) => dayjs(record.created_at).format('YYYY-MM-DD HH:mm:ss'),
+      render: (_: any, record: TransactionRecord) => dayjs(record.created_at).format('YYYY-MM-DD HH:mm:ss'),
     },
   ];
 
@@ -204,14 +170,7 @@ const BalanceManagement: React.FC = () => {
           labelWidth: 120,
         }}
         toolBarRender={() => [
-          <Button
-            key="button"
-            icon={<PlusOutlined />}
-            type="primary"
-            onClick={handleAddBalance}
-          >
-            充值余额
-          </Button>,
+          // 删除充值余额按钮
         ]}
         request={async (params, sort, filter) => {
           // 构建请求参数
@@ -252,11 +211,7 @@ const BalanceManagement: React.FC = () => {
 
       {/* 余额调整模态框 */}
       <Modal
-        title={
-          adjustingUser
-            ? `调整用户 ${adjustingUser.username} 的余额`
-            : '充值余额'
-        }
+        title={`调整用户 ${adjustingUser?.username || ''} 的余额`}
         open={adjustModalVisible}
         onCancel={() => setAdjustModalVisible(false)}
         onOk={handleAdjustBalanceSubmit}
@@ -264,24 +219,6 @@ const BalanceManagement: React.FC = () => {
         maskClosable={false}
       >
         <Form form={form} layout="vertical">
-          {!adjustingUser && (
-            <Form.Item
-              name="userId"
-              label="用户"
-              rules={[{ required: true, message: '请选择用户' }]}
-            >
-              <Select
-                placeholder="请选择用户"
-                options={userOptions}
-                onChange={(value) => setSelectedUser(value)}
-                showSearch
-                filterOption={(input, option) =>
-                  (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                }
-              />
-            </Form.Item>
-          )}
-
           <Form.Item
             name="type"
             label="操作类型"
