@@ -27,21 +27,16 @@ export async function getInitialState(): Promise<{
       // 从localStorage获取用户ID
       const userId = localStorage.getItem('userId');
       console.log('从localStorage获取到的userId:', userId);
-      
+
       if (!userId) {
         console.error('没有找到userId，无法获取用户信息');
         return undefined;
       }
-      
-      // 获取当前窗口的主机名和端口
-      const { protocol, hostname } = window.location;
-      // 使用当前域名，不再指定端口
-      const baseURL = `${protocol}//${hostname}`;
-      
-      // 发起请求获取用户信息
-      const apiUrl = `${baseURL}/api/currentUser?userId=${userId}`;
+
+      // 使用相对路径，让浏览器自动处理域名和端口
+      const apiUrl = `/api/currentUser?userId=${userId}`;
       console.log('请求用户信息, URL:', apiUrl);
-      
+
       try {
         const response = await fetch(apiUrl, {
           method: 'GET',
@@ -50,15 +45,15 @@ export async function getInitialState(): Promise<{
             'Accept': 'application/json'
           },
         });
-        
+
         if (!response.ok) {
           console.error('请求用户信息失败, 状态码:', response.status);
           throw new Error(`请求失败: ${response.status}`);
         }
-        
+
         const data = await response.json();
         console.log('获取到的用户信息响应:', data);
-        
+
         if (data.success) {
           console.log('成功获取用户信息');
           return data.data;
@@ -96,7 +91,7 @@ export async function getInitialState(): Promise<{
 export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) => {
   // 保存当前用户角色状态
   const [access] = useState(initialState?.currentUser?.access);
-  
+
   return {
     actionsRender: () => [<SelectLang key="SelectLang" />],
     avatarProps: {
@@ -139,11 +134,11 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
     ],
     links: isDev
       ? [
-          <Link key="openapi" to="/umi/plugin/openapi" target="_blank">
-            <LinkOutlined />
-            <span>OpenAPI 文档</span>
-          </Link>,
-        ]
+        <Link key="openapi" to="/umi/plugin/openapi" target="_blank">
+          <LinkOutlined />
+          <span>OpenAPI 文档</span>
+        </Link>,
+      ]
       : [],
     menuHeaderRender: undefined,
     // 自定义 403 页面
@@ -189,20 +184,20 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
     // 根据返回值判断页面是否有权限访问
     // 不需要权限的路由始终返回 true
     // 需要权限的路由根据当前用户权限判断
-    access: (route: {path?: string}) => {
+    access: (route: { path?: string }) => {
       // 仪表盘和余额管理页面所有人都可以访问
       if (
-        route.path === '/dashboard' || 
+        route.path === '/dashboard' ||
         route.path === '/balance-management'
       ) {
         return true;
       }
-      
+
       // 用户管理页面仅管理员可以访问
       if (route.path === '/user-management') {
         return access === 'admin';
       }
-      
+
       // 其他情况默认放行
       return true;
     },
@@ -216,10 +211,8 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
  */
 export const request: RequestConfig = {
   ...errorConfig,
-  // 动态设置baseURL，确保在不同设备上都能正确连接到后端
-  baseURL: typeof window !== 'undefined' 
-    ? `${window.location.protocol}//${window.location.hostname}` 
-    : 'http://localhost',
+  // 使用相对路径，让 Nginx 代理处理
+  baseURL: '',
   // 响应拦截器
   responseInterceptors: [
     (response) => {

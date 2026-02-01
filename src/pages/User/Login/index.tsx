@@ -90,14 +90,14 @@ const Login: React.FC = () => {
       // 登录
       const msg = await login({ ...values, type: 'account' });
       console.log('登录响应:', msg);
-      
+
       if (msg.status === 'ok') {
         const defaultLoginSuccessMessage = intl.formatMessage({
           id: 'pages.login.success',
           defaultMessage: '登录成功！',
         });
         message.success(defaultLoginSuccessMessage);
-        
+
         // 保存用户ID到localStorage
         if (msg.userId) {
           localStorage.setItem('userId', msg.userId.toString());
@@ -105,19 +105,15 @@ const Login: React.FC = () => {
         } else {
           console.warn('登录响应中没有userId');
         }
-        
+
         try {
           // 尝试获取用户信息
           console.log('正在获取用户信息...');
-          
-          // 直接使用fetch获取用户信息，避免使用可能配置错误的initialState.fetchUserInfo
+
+          // 直接使用相对路径
           const userId = msg.userId;
-          // 获取当前窗口的主机名和端口
-          const { protocol, hostname } = window.location;
-          // 使用当前域名，不再指定端口
-          const baseURL = `${protocol}//${hostname}`;
-          const apiUrl = `${baseURL}/api/currentUser?userId=${userId}`;
-          
+          const apiUrl = `/api/currentUser?userId=${userId}`;
+
           console.log('直接请求用户信息, URL:', apiUrl);
           const response = await fetch(apiUrl, {
             method: 'GET',
@@ -126,14 +122,14 @@ const Login: React.FC = () => {
               'Accept': 'application/json'
             },
           });
-          
+
           if (!response.ok) {
             throw new Error(`请求失败: ${response.status}`);
           }
-          
+
           const data = await response.json();
           console.log('获取到的用户信息响应:', data);
-          
+
           if (data.success && data.data) {
             // 更新initialState
             flushSync(() => {
@@ -142,9 +138,9 @@ const Login: React.FC = () => {
                 currentUser: data.data,
               }));
             });
-            
+
             console.log('已更新initialState');
-            
+
             // 添加延迟后再跳转，确保状态已更新
             setTimeout(() => {
               const urlParams = new URL(window.location.href).searchParams;

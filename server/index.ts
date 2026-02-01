@@ -42,7 +42,7 @@ app.use(bodyParser.json());
       AND TABLE_NAME = 'users' 
       AND COLUMN_NAME = 'role'
     `);
-    
+
     // 如果字段不存在，则添加
     if (roleColumns[0].count === 0) {
       try {
@@ -57,7 +57,7 @@ app.use(bodyParser.json());
     } else {
       console.log('role字段已存在，无需添加');
     }
-    
+
     // 设置admin用户角色
     await pool.query(`
       UPDATE users 
@@ -91,7 +91,7 @@ app.post('/api/login/account', async (req, res) => {
     }
 
     const user = users[0];
-    
+
     // 检查用户状态，如果被禁用则拒绝登录
     if (user.status === 'inactive') {
       console.log('禁止登录 - 用户已被禁用:', username);
@@ -106,7 +106,7 @@ app.post('/api/login/account', async (req, res) => {
     // 登录成功，使用数据库中存储的角色
     const userRole = user.role || (username === 'admin' ? 'admin' : 'user');
     const userId = user.id;
-    
+
     return res.json({
       status: 'ok',
       type,
@@ -131,9 +131,9 @@ app.use('/api/login/outLogin', (req, res) => {
     });
   } catch (error) {
     console.error('退出登录错误:', error);
-    return res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error'
     });
   }
 });
@@ -144,7 +144,7 @@ app.get('/api/currentUser', async (req, res) => {
     // 从请求中获取用户ID
     const userId = req.query.userId || '1'; // 默认为1，实际应从token获取
     console.log('接收到获取用户信息请求，userId:', userId);
-    
+
     // 查询用户信息
     console.log('正在查询用户信息...');
     const [users] = await pool.query<UserRow[]>(
@@ -152,7 +152,7 @@ app.get('/api/currentUser', async (req, res) => {
       [userId]
     );
     console.log('查询结果:', users);
-    
+
     if (users.length === 0) {
       console.log('用户不存在:', userId);
       return res.status(404).json({
@@ -160,10 +160,10 @@ app.get('/api/currentUser', async (req, res) => {
         error: '用户不存在',
       });
     }
-    
+
     const user = users[0];
     console.log('找到用户:', user);
-    
+
     // 检查用户状态，如果被禁用则拒绝访问
     if (user.status === 'inactive') {
       console.log('用户已被禁用:', userId);
@@ -172,10 +172,10 @@ app.get('/api/currentUser', async (req, res) => {
         error: '账号已被禁用，请联系管理员',
       });
     }
-    
+
     // 使用数据库中存储的角色，如果没有则根据用户名判断
     const role = user.role || (user.username === 'admin' ? 'admin' : 'user');
-    
+
     const userData = {
       name: user.real_name || user.username,
       avatar: 'https://gw.alipayobjects.com/zos/antfincdn/XAosXuNZyF/BiazfanxmamNRoxxVxka.png',
@@ -187,9 +187,9 @@ app.get('/api/currentUser', async (req, res) => {
       access: role,
       status: user.status,
     };
-    
+
     console.log('返回用户数据:', userData);
-    
+
     return res.json({
       success: true,
       data: userData,
@@ -244,13 +244,13 @@ app.get('/api/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
     console.log('接收到获取单个用户信息请求，userId:', id);
-    
+
     // 查询用户信息
     const [users] = await pool.query<UserRow[]>(
       'SELECT id, username, real_name as realName, balance, status, role, created_at as createdAt, updated_at as updatedAt FROM users WHERE id = ?',
       [id]
     );
-    
+
     if (users.length === 0) {
       console.log('用户不存在:', id);
       return res.status(404).json({
@@ -258,10 +258,10 @@ app.get('/api/users/:id', async (req, res) => {
         error: '用户不存在',
       });
     }
-    
+
     const user = users[0];
     console.log('找到用户:', user);
-    
+
     return res.json({
       success: true,
       data: user,
@@ -276,15 +276,15 @@ app.get('/api/users/:id', async (req, res) => {
 app.post('/api/users', async (req, res) => {
   try {
     const { username, realName, password, initialBalance, role = 'user' } = req.body;
-    
+
     // 构建查询
     let query = 'INSERT INTO users (username, real_name, password, balance, status, role';
     let placeholders = '(?, ?, ?, ?, ?, ?';
     const params: any[] = [username, realName, password, initialBalance, 'active', role];
-    
+
     // 完成查询
     query += ') VALUES ' + placeholders + ')';
-    
+
     const [result] = await pool.query<ResultSetHeader>(query, params);
     const [users] = await pool.query<UserRow[]>('SELECT * FROM users WHERE id = ?', [result.insertId]);
     res.json({ success: true, data: users[0] });
@@ -300,21 +300,21 @@ app.put('/api/users/:id', async (req, res) => {
     const { id } = req.params;
     const { username, realName, status, role } = req.body;
     console.log('Updating user:', { id, username, realName, status, role });
-    
+
     // 构建更新查询
     let query = 'UPDATE users SET username = ?, real_name = ?, status = ?';
     const params: any[] = [username, realName, status || 'active'];
-    
+
     // 如果提供了角色，则添加到更新中
     if (role) {
       query += ', role = ?';
       params.push(role);
     }
-    
+
     // 添加WHERE条件
     query += ' WHERE id = ?';
     params.push(id);
-    
+
     await pool.query(query, params);
     return res.json({ success: true });
   } catch (error) {
@@ -337,28 +337,28 @@ app.post('/api/users/:id/balance', async (req, res) => {
 
     // 获取当前余额
     const [users] = await connection.query<UserRow[]>('SELECT * FROM users WHERE id = ?', [id]);
-    
+
     if (!users || users.length === 0) {
       console.error('用户不存在:', id);
       await connection.rollback();
       return res.status(404).json({ success: false, error: '用户不存在' });
     }
-    
+
     const currentBalance = users[0].balance;
     console.log('当前余额:', currentBalance);
 
     // 计算新余额
     const numAmount = parseFloat(amount as string);
     console.log('转换后的金额:', numAmount, '类型:', typeof numAmount);
-    
+
     // 确保当前余额也是数字类型
     const currentBalanceNum = parseFloat(currentBalance.toString());
     console.log('转换后的当前余额:', currentBalanceNum, '类型:', typeof currentBalanceNum);
-    
-    const newBalance = type === 'increase' 
-      ? currentBalanceNum + numAmount 
+
+    const newBalance = type === 'increase'
+      ? currentBalanceNum + numAmount
       : currentBalanceNum - numAmount;
-    
+
     console.log('新余额:', newBalance, '类型:', typeof newBalance);
 
     if (newBalance < 0) {
@@ -396,7 +396,7 @@ app.post('/api/users/:id/balance', async (req, res) => {
 app.get('/api/transactions', async (req, res) => {
   try {
     console.log('Received request for transactions:', req.query);
-    
+
     // 同时支持current和page参数
     const page = parseInt(req.query.page as string) || parseInt(req.query.current as string) || 1;
     const pageSize = parseInt(req.query.pageSize as string) || 10;
@@ -405,9 +405,9 @@ app.get('/api/transactions', async (req, res) => {
     const startTime = req.query.startTime as string;
     const endTime = req.query.endTime as string;
     const userId = req.query.userId as string; // 添加userId参数
-    
+
     const offset = (page - 1) * pageSize;
-    
+
     let query = `
       SELECT 
         t.id, 
@@ -423,47 +423,47 @@ app.get('/api/transactions', async (req, res) => {
       JOIN users u ON t.user_id = u.id
       WHERE 1=1
     `;
-    
+
     const params: any[] = [];
-    
+
     if (username) {
       query += " AND u.username LIKE ?";
       params.push(`%${username}%`);
     }
-    
+
     if (type) {
       query += " AND t.type = ?";
       params.push(type);
     }
-    
+
     if (startTime) {
       query += " AND t.created_at >= ?";
       params.push(startTime);
     }
-    
+
     if (endTime) {
       query += " AND t.created_at <= ?";
       params.push(endTime);
     }
-    
+
     if (userId) {
       query += " AND t.user_id = ?";
       params.push(userId);
     }
-    
+
     // 获取总数
     const totalQuery = query.replace('SELECT \n        t.id, \n        t.user_id, \n        u.username, \n        t.type, \n        t.amount, \n        t.balance, \n        t.reason, \n        t.operator, \n        t.created_at', 'SELECT COUNT(*) as total');
-    
+
     const [totalRows] = await pool.query<RowDataPacket[]>(totalQuery, params);
     const total = totalRows[0].total;
-    
+
     // 获取数据
     query += " ORDER BY t.created_at DESC LIMIT ? OFFSET ?";
     params.push(pageSize, offset);
-    
+
     const [rows] = await pool.query<TransactionRow[]>(query, params);
     console.log(`Found ${rows.length} transaction records`);
-    
+
     res.json({
       data: rows,
       total,
@@ -483,17 +483,17 @@ app.get('/api/transactions', async (req, res) => {
 app.get('/api/users/options', async (_req, res) => {
   try {
     console.log('Received request for user options');
-    
+
     const query = `
       SELECT id, username, real_name as realName
       FROM users
       WHERE status = 'active'
       ORDER BY username
     `;
-    
+
     const [rows] = await pool.query<UserRow[]>(query);
     console.log(`Found ${rows.length} users for options`);
-    
+
     res.json({
       data: rows,
       success: true,
@@ -503,6 +503,157 @@ app.get('/api/users/options', async (_req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch user options',
+      error: error.message,
+    });
+  }
+});
+
+// 获取仪表盘统计数据
+app.get('/api/dashboard/stats', async (req, res) => {
+  try {
+    const userId = req.query.userId as string;
+    const isAdmin = req.query.isAdmin === 'true';
+
+    console.log('获取仪表盘统计数据:', { userId, isAdmin });
+
+    // 获取当前月份的第一天和最后一天
+    const now = new Date();
+    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+    let stats: any = {};
+
+    if (isAdmin) {
+      // 管理员视图：查看所有数据
+
+      // 总用户数
+      const [userCountResult] = await pool.query<RowDataPacket[]>(
+        'SELECT COUNT(*) as totalUsers FROM users'
+      );
+      stats.totalUsers = userCountResult[0].totalUsers;
+
+      // 总余额
+      const [balanceResult] = await pool.query<RowDataPacket[]>(
+        'SELECT SUM(balance) as totalBalance FROM users'
+      );
+      stats.totalBalance = parseFloat(balanceResult[0].totalBalance) || 0;
+
+      // 本月充值
+      const [incomeResult] = await pool.query<RowDataPacket[]>(
+        `SELECT COALESCE(SUM(amount), 0) as monthlyIncome FROM transactions 
+         WHERE type = 'increase' AND created_at >= ? AND created_at <= ?`,
+        [firstDayOfMonth, lastDayOfMonth]
+      );
+      stats.monthlyIncome = parseFloat(incomeResult[0].monthlyIncome) || 0;
+
+      // 本月消费
+      const [expenseResult] = await pool.query<RowDataPacket[]>(
+        `SELECT COALESCE(SUM(amount), 0) as monthlyExpense FROM transactions 
+         WHERE type = 'decrease' AND created_at >= ? AND created_at <= ?`,
+        [firstDayOfMonth, lastDayOfMonth]
+      );
+      stats.monthlyExpense = parseFloat(expenseResult[0].monthlyExpense) || 0;
+
+      // 最近6个月的收支趋势
+      const [trendsResult] = await pool.query<RowDataPacket[]>(
+        `SELECT 
+           DATE_FORMAT(created_at, '%Y-%m') as month,
+           type,
+           SUM(amount) as total
+         FROM transactions
+         WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+         GROUP BY DATE_FORMAT(created_at, '%Y-%m'), type
+         ORDER BY month ASC`
+      );
+
+      // 格式化趋势数据
+      const trends: any[] = [];
+      const monthlyData: Record<string, Record<string, number>> = {};
+
+      trendsResult.forEach((row: any) => {
+        if (!monthlyData[row.month]) {
+          monthlyData[row.month] = { increase: 0, decrease: 0 };
+        }
+        monthlyData[row.month][row.type] = parseFloat(row.total) || 0;
+      });
+
+      Object.keys(monthlyData).sort().forEach(month => {
+        trends.push({ date: month, type: '充值', value: monthlyData[month].increase || 0 });
+        trends.push({ date: month, type: '消费', value: monthlyData[month].decrease || 0 });
+      });
+
+      stats.trends = trends;
+
+    } else {
+      // 普通用户视图：只查看自己的数据
+
+      // 用户余额
+      const [userResult] = await pool.query<RowDataPacket[]>(
+        'SELECT balance FROM users WHERE id = ?',
+        [userId]
+      );
+      stats.totalUsers = 1;
+      stats.totalBalance = parseFloat(userResult[0]?.balance) || 0;
+
+      // 本月充值
+      const [incomeResult] = await pool.query<RowDataPacket[]>(
+        `SELECT COALESCE(SUM(amount), 0) as monthlyIncome FROM transactions 
+         WHERE user_id = ? AND type = 'increase' AND created_at >= ? AND created_at <= ?`,
+        [userId, firstDayOfMonth, lastDayOfMonth]
+      );
+      stats.monthlyIncome = parseFloat(incomeResult[0].monthlyIncome) || 0;
+
+      // 本月消费
+      const [expenseResult] = await pool.query<RowDataPacket[]>(
+        `SELECT COALESCE(SUM(amount), 0) as monthlyExpense FROM transactions 
+         WHERE user_id = ? AND type = 'decrease' AND created_at >= ? AND created_at <= ?`,
+        [userId, firstDayOfMonth, lastDayOfMonth]
+      );
+      stats.monthlyExpense = parseFloat(expenseResult[0].monthlyExpense) || 0;
+
+      // 最近6个月的收支趋势
+      const [trendsResult] = await pool.query<RowDataPacket[]>(
+        `SELECT 
+           DATE_FORMAT(created_at, '%Y-%m') as month,
+           type,
+           SUM(amount) as total
+         FROM transactions
+         WHERE user_id = ? AND created_at >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+         GROUP BY DATE_FORMAT(created_at, '%Y-%m'), type
+         ORDER BY month ASC`,
+        [userId]
+      );
+
+      // 格式化趋势数据
+      const trends: any[] = [];
+      const monthlyData: Record<string, Record<string, number>> = {};
+
+      trendsResult.forEach((row: any) => {
+        if (!monthlyData[row.month]) {
+          monthlyData[row.month] = { increase: 0, decrease: 0 };
+        }
+        monthlyData[row.month][row.type] = parseFloat(row.total) || 0;
+      });
+
+      Object.keys(monthlyData).sort().forEach(month => {
+        trends.push({ date: month, type: '充值', value: monthlyData[month].increase || 0 });
+        trends.push({ date: month, type: '消费', value: monthlyData[month].decrease || 0 });
+      });
+
+      stats.trends = trends;
+    }
+
+    console.log('统计数据:', stats);
+
+    res.json({
+      success: true,
+      data: stats,
+    });
+  } catch (error) {
+    console.error('获取统计数据失败:', error);
+    res.status(500).json({
+      success: false,
+      message: '获取统计数据失败',
       error: error.message,
     });
   }

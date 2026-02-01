@@ -22,27 +22,25 @@ export async function outLogin(options?: { [key: string]: any }) {
 
 /** 登录接口 POST /api/login/account */
 export async function login(body: API.LoginParams, options?: { [key: string]: any }) {
-  // 获取当前窗口的主机名和端口
-  const { protocol, hostname } = window.location;
-  // 使用当前域名，不再指定端口
-  const baseURL = `${protocol}//${hostname}`;
-  
-  console.log('登录请求URL:', `${baseURL}/api/login/account`);
-  
-  // 使用fetch直接发送请求，而不是通过request
+  // 直接使用相对路径，让 Nginx 代理处理
+  const apiUrl = '/api/login/account';
+
+  console.log('登录请求URL:', apiUrl);
+
+  // 使用fetch直接发送请求
   try {
-    const response = await fetch(`${baseURL}/api/login/account`, {
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
     });
-    
+
     if (!response.ok) {
       throw new Error(`请求失败: ${response.status}`);
     }
-    
+
     return await response.json();
   } catch (error) {
     console.error('登录请求失败:', error);

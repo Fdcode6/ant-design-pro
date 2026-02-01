@@ -1,0 +1,60 @@
+# Docker Compose 配置文件 - 千寻云仓通
+
+services:
+  # MySQL 数据库
+  db:
+    image: mysql:8.0
+    container_name: yuncang-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: yuncang
+      MYSQL_USER: yuncang
+      MYSQL_PASSWORD: NeGAj5awAn7bfWit
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./server/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./server/init-data.sql:/docker-entrypoint-initdb.d/02-init-data.sql:ro
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 后端 API 服务
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: yuncang-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 8001
+      DB_HOST: db
+      DB_USER: yuncang
+      DB_PASSWORD: NeGAj5awAn7bfWit
+      DB_DATABASE: yuncang
+    ports:
+      - "8001:8001"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # 前端 Nginx 服务
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: yuncang-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
