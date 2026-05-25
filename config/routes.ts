@@ -32,6 +32,7 @@ export default [
     path: '/user-management',
     name: 'user-management',
     icon: 'team',
+    access: 'canAdmin',
     component: './UserManagement',
   },
   {

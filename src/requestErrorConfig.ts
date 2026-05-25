@@ -1,5 +1,6 @@
 ﻿import type { RequestOptions } from '@@/plugin-request/request';
 import type { RequestConfig } from '@umijs/max';
+import { history } from '@umijs/max';
 import { message, notification } from 'antd';
 
 // 错误处理方案： 错误类型
@@ -72,7 +73,23 @@ export const errorConfig: RequestConfig = {
       } else if (error.response) {
         // Axios 的错误
         // 请求成功发出且服务器也响应了状态码，但状态代码超出了 2xx 的范围
-        message.error(`Response status:${error.response.status}`);
+        const status = error.response.status;
+        if (status === 401) {
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('userId');
+          message.error('登录已过期，请重新登录');
+          if (history.location.pathname !== '/user/login') {
+            history.push('/user/login');
+          }
+          return;
+        }
+
+        if (status === 403) {
+          message.error('没有操作权限');
+          return;
+        }
+
+        message.error(`Response status:${status}`);
       } else if (error.request) {
         // 请求已经成功发起，但没有收到响应
         // \`error.request\` 在浏览器中是 XMLHttpRequest 的实例，
@@ -88,9 +105,14 @@ export const errorConfig: RequestConfig = {
   // 请求拦截器
   requestInterceptors: [
     (config: RequestOptions) => {
-      // 拦截请求配置，进行个性化处理。
-      const url = config?.url?.concat('?token = 123');
-      return { ...config, url };
+      const token = localStorage.getItem('accessToken');
+      return {
+        ...config,
+        headers: {
+          ...(config.headers || {}),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      };
     },
   ],
 

@@ -9,9 +9,9 @@ import {
   ProFormDigit,
   ProFormSelect,
 } from '@ant-design/pro-components';
-import { Button, message } from 'antd';
+import { Button, message, Result } from 'antd';
 import { getUsers, createUser, updateUser } from '@/services/user';
-import { request } from '@umijs/max';
+import { request, useModel } from '@umijs/max';
 
 export type UserItem = {
   id: string;
@@ -25,6 +25,57 @@ export type UserItem = {
 
 const UserManagement: React.FC = () => {
   const actionRef = useRef<ActionType>();
+  const { initialState, loading } = useModel('@@initialState');
+  const isAdmin = initialState?.currentUser?.access === 'admin';
+
+  if (loading) {
+    return <PageContainer />;
+  }
+
+  if (!isAdmin) {
+    return (
+      <PageContainer>
+        <Result status="403" title="403" subTitle="没有管理员权限" />
+      </PageContainer>
+    );
+  }
+
+  const handleAdjustBalance = async (id: string, values: any) => {
+    console.log('Handling balance adjustment:', { id, values });
+    const { amount, type, reason } = values;
+
+    try {
+      // 确保amount是数字
+      const numAmount = Number(amount);
+      if (isNaN(numAmount) || numAmount <= 0) {
+        message.error('金额必须大于0');
+        return false;
+      }
+
+      // 调用API调整余额
+      const result = await request<{ success: boolean }>(`/api/users/${id}/balance`, {
+        method: 'POST',
+        data: {
+          amount: numAmount,
+          type: type,
+          reason: reason,
+        },
+      });
+
+      console.log('Balance adjustment result:', result);
+
+      if (result && result.success) {
+        return true;
+      } else {
+        message.error('余额调整失败');
+        return false;
+      }
+    } catch (error) {
+      console.error('Balance adjustment error:', error);
+      message.error('余额调整出错');
+      return false;
+    }
+  };
 
   const columns: ProColumns<UserItem>[] = [
     {
@@ -151,6 +202,7 @@ const UserManagement: React.FC = () => {
           <ProFormText
             name="reason"
             label="调整原因"
+            rules={[{ required: true, message: '请输入调整原因' }]}
           />
         </ModalForm>,
         <ModalForm
@@ -183,48 +235,12 @@ const UserManagement: React.FC = () => {
           <ProFormText
             name="reason"
             label="调整原因"
+            rules={[{ required: true, message: '请输入调整原因' }]}
           />
         </ModalForm>,
       ],
     },
   ];
-
-  const handleAdjustBalance = async (id: string, values: any) => {
-    console.log('Handling balance adjustment:', { id, values });
-    const { amount, type, reason } = values;
-    
-    try {
-      // 确保amount是数字
-      const numAmount = Number(amount);
-      if (isNaN(numAmount) || numAmount <= 0) {
-        message.error('金额必须大于0');
-        return false;
-      }
-      
-      // 调用API调整余额
-      const result = await request<{ success: boolean }>(`/api/users/${id}/balance`, {
-        method: 'POST',
-        data: {
-          amount: numAmount,
-          type: type,
-          reason: reason,
-        },
-      });
-      
-      console.log('Balance adjustment result:', result);
-      
-      if (result && result.success) {
-        return true;
-      } else {
-        message.error('余额调整失败');
-        return false;
-      }
-    } catch (error) {
-      console.error('Balance adjustment error:', error);
-      message.error('余额调整出错');
-      return false;
-    }
-  };
 
   const handleCreateUser = async (values: any) => {
     const { username, realName, password, initialBalance, role } = values;
@@ -311,4 +327,4 @@ const UserManagement: React.FC = () => {
   );
 };
 
-export default UserManagement; 
+export default UserManagement;

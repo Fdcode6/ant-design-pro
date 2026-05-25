@@ -10,6 +10,7 @@ declare namespace API {
     signature?: string;
     title?: string;
     group?: string;
+    status?: string;
     tags?: { key?: string; label?: string }[];
     notifyCount?: number;
     unreadCount?: number;
@@ -28,6 +29,9 @@ declare namespace API {
     type?: string;
     currentAuthority?: string;
     userId?: number;
+    accessToken?: string;
+    tokenType?: string;
+    expiresIn?: string;
   };
 
   type PageParams = {

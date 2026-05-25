@@ -138,7 +138,7 @@ export const BalanceManagementList: React.FC = () => {
           />
         </ModalForm>,
       ]}
-      request={async (params) => {
+      request={async () => {
         // 这里需要实现与后端API的对接
         // 目前返回模拟数据
         return {
@@ -162,4 +162,4 @@ export const BalanceManagementList: React.FC = () => {
       columns={columns}
     />
   );
-}; 
+};

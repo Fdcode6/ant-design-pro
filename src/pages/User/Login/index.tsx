@@ -81,7 +81,9 @@ const Login: React.FC = () => {
           currentUser: userInfo,
         }));
       });
+      return userInfo;
     }
+    return undefined;
   };
 
   const handleSubmit = async (values: API.LoginParams) => {
@@ -92,16 +94,22 @@ const Login: React.FC = () => {
       console.log('登录响应:', msg);
 
       if (msg.status === 'ok') {
+        if (!msg.accessToken) {
+          message.error('登录响应缺少访问令牌');
+          setUserLoginState({ ...msg, status: 'error' });
+          return;
+        }
+
         const defaultLoginSuccessMessage = intl.formatMessage({
           id: 'pages.login.success',
           defaultMessage: '登录成功！',
         });
         message.success(defaultLoginSuccessMessage);
 
-        // 保存用户ID到localStorage
+        localStorage.setItem('accessToken', msg.accessToken);
+
         if (msg.userId) {
           localStorage.setItem('userId', msg.userId.toString());
-          console.log('已保存用户ID到localStorage:', msg.userId);
         } else {
           console.warn('登录响应中没有userId');
         }
@@ -109,45 +117,13 @@ const Login: React.FC = () => {
         try {
           // 尝试获取用户信息
           console.log('正在获取用户信息...');
+          const userInfo = await fetchUserInfo();
 
-          // 直接使用相对路径
-          const userId = msg.userId;
-          const apiUrl = `/api/currentUser?userId=${userId}`;
-
-          console.log('直接请求用户信息, URL:', apiUrl);
-          const response = await fetch(apiUrl, {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json'
-            },
-          });
-
-          if (!response.ok) {
-            throw new Error(`请求失败: ${response.status}`);
-          }
-
-          const data = await response.json();
-          console.log('获取到的用户信息响应:', data);
-
-          if (data.success && data.data) {
-            // 更新initialState
-            flushSync(() => {
-              setInitialState((s) => ({
-                ...s,
-                currentUser: data.data,
-              }));
-            });
-
-            console.log('已更新initialState');
-
-            // 添加延迟后再跳转，确保状态已更新
-            setTimeout(() => {
-              const urlParams = new URL(window.location.href).searchParams;
-              const redirect = urlParams.get('redirect') || '/';
-              console.log('即将跳转到:', redirect);
-              history.push(redirect);
-            }, 100);
+          if (userInfo) {
+            const urlParams = new URL(window.location.href).searchParams;
+            const redirect = urlParams.get('redirect') || '/';
+            console.log('即将跳转到:', redirect);
+            history.push(redirect);
           } else {
             console.error('获取用户信息失败，响应数据无效');
             // 直接跳转到首页

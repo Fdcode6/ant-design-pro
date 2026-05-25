@@ -3,6 +3,19 @@ import cors from 'cors';
 import bodyParser from 'body-parser';
 import pool from './database';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2';
+import {
+  authenticate,
+  canAccessUser,
+  ensureRevokedTokensTable,
+  getClientIp,
+  isAdminUser,
+  normalizeBalanceAdjustment,
+  parseBearerToken,
+  requireAdmin,
+  revokeAccessToken,
+  signAccessToken,
+  type AuthenticatedRequest,
+} from './auth';
 
 interface UserRow extends RowDataPacket {
   id: number;
@@ -24,6 +37,11 @@ interface TransactionRow extends RowDataPacket {
   balance: number;
   reason: string;
   operator: string;
+  operator_id?: number | null;
+  operator_username?: string | null;
+  operator_role?: string | null;
+  operator_ip?: string | null;
+  operator_user_agent?: string | null;
   created_at: Date;
 }
 
@@ -32,14 +50,31 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
+const ensureColumn = async (tableName: string, columnName: string, definition: string) => {
+  const [columns] = await pool.query<RowDataPacket[]>(
+    `
+      SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = ?
+      AND COLUMN_NAME = ?
+    `,
+    [tableName, columnName],
+  );
+
+  if (columns[0].count === 0) {
+    await pool.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+    console.log(`确保数据库结构完整 - 已添加${tableName}.${columnName}字段`);
+  }
+};
+
 // 数据库结构初始化
 (async () => {
   try {
     // 先检查role字段是否存在
     const [roleColumns] = await pool.query<RowDataPacket[]>(`
-      SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS 
-      WHERE TABLE_SCHEMA = DATABASE() 
-      AND TABLE_NAME = 'users' 
+      SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'users'
       AND COLUMN_NAME = 'role'
     `);
 
@@ -47,7 +82,7 @@ app.use(bodyParser.json());
     if (roleColumns[0].count === 0) {
       try {
         await pool.query(`
-          ALTER TABLE users 
+          ALTER TABLE users
           ADD COLUMN role VARCHAR(20) DEFAULT 'user'
         `);
         console.log('确保数据库结构完整 - 已添加role字段');
@@ -60,11 +95,27 @@ app.use(bodyParser.json());
 
     // 设置admin用户角色
     await pool.query(`
-      UPDATE users 
-      SET role = 'admin' 
+      UPDATE users
+      SET role = 'admin'
       WHERE username = 'admin' AND role != 'admin'
     `);
     console.log('确保管理员角色已设置');
+
+    const transactionAuditColumns = [
+      { column: 'operator_id', definition: 'INT NULL AFTER operator' },
+      { column: 'operator_username', definition: 'VARCHAR(50) NULL AFTER operator_id' },
+      { column: 'operator_role', definition: "VARCHAR(20) NULL AFTER operator_username" },
+      { column: 'operator_ip', definition: 'VARCHAR(64) NULL AFTER operator_role' },
+      { column: 'operator_user_agent', definition: 'VARCHAR(255) NULL AFTER operator_ip' },
+    ];
+
+    for (const auditColumn of transactionAuditColumns) {
+      await ensureColumn('transactions', auditColumn.column, auditColumn.definition);
+    }
+    console.log('确保交易审计字段已设置');
+
+    await ensureRevokedTokensTable();
+    console.log('确保退出登录令牌撤销表已设置');
   } catch (error) {
     console.error('数据库初始化错误:', error);
   }
@@ -74,7 +125,7 @@ app.use(bodyParser.json());
 app.post('/api/login/account', async (req, res) => {
   try {
     const { username, password, type } = req.body;
-    console.log('Login attempt:', { username, password, type });
+    console.log('Login attempt:', { username, type });
 
     // 查询用户
     const [users] = await pool.query<UserRow[]>(
@@ -106,12 +157,20 @@ app.post('/api/login/account', async (req, res) => {
     // 登录成功，使用数据库中存储的角色
     const userRole = user.role || (username === 'admin' ? 'admin' : 'user');
     const userId = user.id;
+    const accessToken = signAccessToken({
+      id: userId,
+      username: user.username,
+      role: userRole,
+    });
 
     return res.json({
       status: 'ok',
       type,
       currentAuthority: userRole,
       userId: userId,
+      accessToken,
+      tokenType: 'Bearer',
+      expiresIn: process.env.JWT_EXPIRES_IN || '8h',
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -120,10 +179,14 @@ app.post('/api/login/account', async (req, res) => {
 });
 
 // 退出登录API
-app.use('/api/login/outLogin', (req, res) => {
+app.use('/api/login/outLogin', async (req, res) => {
   try {
     console.log('退出登录请求:', req.method, req.query);
-    // 这里可以添加token失效等逻辑
+    const token = parseBearerToken(req.headers.authorization);
+    if (token) {
+      await revokeAccessToken(token);
+    }
+
     return res.json({
       data: {},
       success: true,
@@ -139,53 +202,28 @@ app.use('/api/login/outLogin', (req, res) => {
 });
 
 // 获取当前用户信息
-app.get('/api/currentUser', async (req, res) => {
+app.get('/api/currentUser', authenticate, async (req: AuthenticatedRequest, res) => {
   try {
-    // 从请求中获取用户ID
-    const userId = req.query.userId || '1'; // 默认为1，实际应从token获取
-    console.log('接收到获取用户信息请求，userId:', userId);
-
-    // 查询用户信息
-    console.log('正在查询用户信息...');
-    const [users] = await pool.query<UserRow[]>(
-      'SELECT id, username, real_name, role, status FROM users WHERE id = ?',
-      [userId]
-    );
-    console.log('查询结果:', users);
-
-    if (users.length === 0) {
-      console.log('用户不存在:', userId);
-      return res.status(404).json({
+    const authUser = req.authUser;
+    if (!authUser) {
+      return res.status(401).json({
         success: false,
-        error: '用户不存在',
+        error: '未登录或登录已过期',
       });
     }
 
-    const user = users[0];
-    console.log('找到用户:', user);
-
-    // 检查用户状态，如果被禁用则拒绝访问
-    if (user.status === 'inactive') {
-      console.log('用户已被禁用:', userId);
-      return res.status(403).json({
-        success: false,
-        error: '账号已被禁用，请联系管理员',
-      });
-    }
-
-    // 使用数据库中存储的角色，如果没有则根据用户名判断
-    const role = user.role || (user.username === 'admin' ? 'admin' : 'user');
+    console.log('接收到获取用户信息请求，userId:', authUser.id);
 
     const userData = {
-      name: user.real_name || user.username,
+      name: authUser.realName || authUser.username,
       avatar: 'https://gw.alipayobjects.com/zos/antfincdn/XAosXuNZyF/BiazfanxmamNRoxxVxka.png',
-      userid: user.id.toString(),
-      email: `${user.username}@example.com`,
+      userid: authUser.id.toString(),
+      email: `${authUser.username}@example.com`,
       signature: '芊寻云仓通',
-      title: role === 'admin' ? '管理员' : '普通用户',
+      title: authUser.role === 'admin' ? '管理员' : '普通用户',
       group: '芊寻科技',
-      access: role,
-      status: user.status,
+      access: authUser.role,
+      status: authUser.status,
     };
 
     console.log('返回用户数据:', userData);
@@ -201,7 +239,7 @@ app.get('/api/currentUser', async (req, res) => {
 });
 
 // 获取用户列表
-app.get('/api/users', async (req, res) => {
+app.get('/api/users', authenticate, requireAdmin, async (req, res) => {
   try {
     const { current = 1, pageSize = 10, username, status } = req.query;
     let query = 'SELECT id, username, real_name as realName, balance, status, role, created_at as createdAt, updated_at as updatedAt FROM users WHERE 1=1';
@@ -240,15 +278,30 @@ app.get('/api/users', async (req, res) => {
 });
 
 // 获取单个用户信息
-app.get('/api/users/:id', async (req, res) => {
+app.get('/api/users/:id(\\d+)', authenticate, async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
     console.log('接收到获取单个用户信息请求，userId:', id);
 
+    const targetUserId = Number(id);
+    if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: '用户ID无效',
+      });
+    }
+
+    if (!canAccessUser(req.authUser, targetUserId)) {
+      return res.status(403).json({
+        success: false,
+        error: '没有访问该用户的权限',
+      });
+    }
+
     // 查询用户信息
     const [users] = await pool.query<UserRow[]>(
       'SELECT id, username, real_name as realName, balance, status, role, created_at as createdAt, updated_at as updatedAt FROM users WHERE id = ?',
-      [id]
+      [targetUserId]
     );
 
     if (users.length === 0) {
@@ -273,7 +326,7 @@ app.get('/api/users/:id', async (req, res) => {
 });
 
 // 创建用户
-app.post('/api/users', async (req, res) => {
+app.post('/api/users', authenticate, requireAdmin, async (req, res) => {
   try {
     const { username, realName, password, initialBalance, role = 'user' } = req.body;
 
@@ -295,7 +348,7 @@ app.post('/api/users', async (req, res) => {
 });
 
 // 更新用户
-app.put('/api/users/:id', async (req, res) => {
+app.put('/api/users/:id(\\d+)', authenticate, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { username, realName, status, role } = req.body;
@@ -324,22 +377,45 @@ app.put('/api/users/:id', async (req, res) => {
 });
 
 // 调整用户余额
-app.post('/api/users/:id/balance', async (req, res) => {
-  console.log('收到余额调整请求:', { id: req.params.id, ...req.body });
+app.post('/api/users/:id(\\d+)/balance', authenticate, requireAdmin, async (req: AuthenticatedRequest, res) => {
+  const targetUserId = Number(req.params.id);
+  const operator = req.authUser;
+
+  if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+    return res.status(400).json({ success: false, error: '用户ID无效' });
+  }
+
+  if (!operator) {
+    return res.status(401).json({ success: false, error: '未登录或登录已过期' });
+  }
+
+  let adjustment;
+  try {
+    adjustment = normalizeBalanceAdjustment(req.body);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : '余额调整参数无效';
+    return res.status(400).json({ success: false, error: errorMessage });
+  }
+
+  console.log('收到余额调整请求:', {
+    id: targetUserId,
+    type: adjustment.type,
+    amount: adjustment.amount,
+    operator: operator.username,
+  });
+
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const { id } = req.params;
-    const { type, amount, reason = '' } = req.body;
-    const operator = 'admin'; // 这里应该从认证信息中获取
+    const { type, amount: numAmount, reason } = adjustment;
 
-    console.log('处理余额调整:', { id, type, amount, reason });
+    console.log('处理余额调整:', { id: targetUserId, type, amount: numAmount, reason, operator: operator.username });
 
     // 获取当前余额
-    const [users] = await connection.query<UserRow[]>('SELECT * FROM users WHERE id = ?', [id]);
+    const [users] = await connection.query<UserRow[]>('SELECT * FROM users WHERE id = ?', [targetUserId]);
 
     if (!users || users.length === 0) {
-      console.error('用户不存在:', id);
+      console.error('用户不存在:', targetUserId);
       await connection.rollback();
       return res.status(404).json({ success: false, error: '用户不存在' });
     }
@@ -347,13 +423,13 @@ app.post('/api/users/:id/balance', async (req, res) => {
     const currentBalance = users[0].balance;
     console.log('当前余额:', currentBalance);
 
-    // 计算新余额
-    const numAmount = parseFloat(amount as string);
-    console.log('转换后的金额:', numAmount, '类型:', typeof numAmount);
-
     // 确保当前余额也是数字类型
-    const currentBalanceNum = parseFloat(currentBalance.toString());
+    const currentBalanceNum = Number(currentBalance);
     console.log('转换后的当前余额:', currentBalanceNum, '类型:', typeof currentBalanceNum);
+
+    if (!Number.isFinite(currentBalanceNum)) {
+      throw new Error('当前余额数据异常');
+    }
 
     const newBalance = type === 'increase'
       ? currentBalanceNum + numAmount
@@ -362,21 +438,38 @@ app.post('/api/users/:id/balance', async (req, res) => {
     console.log('新余额:', newBalance, '类型:', typeof newBalance);
 
     if (newBalance < 0) {
-      console.error('余额不足:', { currentBalance, amount, newBalance });
+      console.error('余额不足:', { currentBalance, amount: numAmount, newBalance });
       throw new Error('余额不足');
     }
 
     // 更新用户余额
     await connection.query(
       'UPDATE users SET balance = ? WHERE id = ?',
-      [newBalance, id]
+      [newBalance, targetUserId]
     );
     console.log('已更新用户余额');
 
     // 记录交易
+    const operatorIp = getClientIp(req);
+    const operatorUserAgent = String(req.headers['user-agent'] || '').slice(0, 255);
     const [result] = await connection.query<ResultSetHeader>(
-      'INSERT INTO transactions (user_id, type, amount, balance, reason, operator) VALUES (?, ?, ?, ?, ?, ?)',
-      [id, type, numAmount, newBalance, reason, operator]
+      `INSERT INTO transactions (
+        user_id, type, amount, balance, reason, operator,
+        operator_id, operator_username, operator_role, operator_ip, operator_user_agent
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        targetUserId,
+        type,
+        numAmount,
+        newBalance,
+        reason,
+        operator.username,
+        operator.id,
+        operator.username,
+        operator.role,
+        operatorIp,
+        operatorUserAgent,
+      ]
     );
     console.log('已记录交易:', result);
 
@@ -386,16 +479,25 @@ app.post('/api/users/:id/balance', async (req, res) => {
   } catch (error) {
     await connection.rollback();
     console.error('余额调整错误:', error);
-    return res.status(500).json({ success: false, error: error.message || 'Internal server error' });
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
+    const statusCode = ['余额不足', '当前余额数据异常'].includes(errorMessage) ? 400 : 500;
+    return res.status(statusCode).json({ success: false, error: errorMessage });
   } finally {
     connection.release();
   }
 });
 
 // 获取交易记录
-app.get('/api/transactions', async (req, res) => {
+app.get('/api/transactions', authenticate, async (req: AuthenticatedRequest, res) => {
   try {
     console.log('Received request for transactions:', req.query);
+    const authUser = req.authUser;
+    if (!authUser) {
+      return res.status(401).json({
+        success: false,
+        error: '未登录或登录已过期',
+      });
+    }
 
     // 同时支持current和page参数
     const page = parseInt(req.query.page as string) || parseInt(req.query.current as string) || 1;
@@ -407,61 +509,72 @@ app.get('/api/transactions', async (req, res) => {
     const userId = req.query.userId as string; // 添加userId参数
 
     const offset = (page - 1) * pageSize;
-
-    let query = `
-      SELECT 
-        t.id, 
-        t.user_id, 
-        u.username, 
-        t.type, 
-        t.amount, 
-        t.balance, 
-        t.reason, 
-        t.operator, 
-        t.created_at
-      FROM transactions t
-      JOIN users u ON t.user_id = u.id
-      WHERE 1=1
-    `;
-
+    const whereClauses: string[] = [];
     const params: any[] = [];
 
-    if (username) {
-      query += " AND u.username LIKE ?";
-      params.push(`%${username}%`);
+    if (isAdminUser(authUser)) {
+      if (username) {
+        whereClauses.push('u.username LIKE ?');
+        params.push(`%${username}%`);
+      }
+
+      if (userId) {
+        whereClauses.push('t.user_id = ?');
+        params.push(userId);
+      }
+    } else {
+      whereClauses.push('t.user_id = ?');
+      params.push(authUser.id);
     }
 
     if (type) {
-      query += " AND t.type = ?";
+      whereClauses.push('t.type = ?');
       params.push(type);
     }
 
     if (startTime) {
-      query += " AND t.created_at >= ?";
+      whereClauses.push('t.created_at >= ?');
       params.push(startTime);
     }
 
     if (endTime) {
-      query += " AND t.created_at <= ?";
+      whereClauses.push('t.created_at <= ?');
       params.push(endTime);
     }
 
-    if (userId) {
-      query += " AND t.user_id = ?";
-      params.push(userId);
-    }
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    const baseFromSql = `
+      FROM transactions t
+      JOIN users u ON t.user_id = u.id
+      ${whereSql}
+    `;
 
-    // 获取总数
-    const totalQuery = query.replace('SELECT \n        t.id, \n        t.user_id, \n        u.username, \n        t.type, \n        t.amount, \n        t.balance, \n        t.reason, \n        t.operator, \n        t.created_at', 'SELECT COUNT(*) as total');
-
+    const totalQuery = `SELECT COUNT(*) as total ${baseFromSql}`;
     const [totalRows] = await pool.query<RowDataPacket[]>(totalQuery, params);
     const total = totalRows[0].total;
 
     // 获取数据
-    query += " ORDER BY t.created_at DESC LIMIT ? OFFSET ?";
-    params.push(pageSize, offset);
+    const query = `
+      SELECT
+        t.id,
+        t.user_id,
+        u.username,
+        t.type,
+        t.amount,
+        t.balance,
+        t.reason,
+        t.operator,
+        t.operator_id,
+        t.operator_username,
+        t.operator_role,
+        t.operator_ip,
+        t.operator_user_agent,
+        t.created_at
+      ${baseFromSql}
+      ORDER BY t.created_at DESC LIMIT ? OFFSET ?
+    `;
 
-    const [rows] = await pool.query<TransactionRow[]>(query, params);
+    const [rows] = await pool.query<TransactionRow[]>(query, [...params, pageSize, offset]);
     console.log(`Found ${rows.length} transaction records`);
 
     res.json({
@@ -474,13 +587,13 @@ app.get('/api/transactions', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch transactions',
-      error: error.message,
+      error: error instanceof Error ? error.message : 'Internal server error',
     });
   }
 });
 
 // 获取用户选项列表
-app.get('/api/users/options', async (_req, res) => {
+app.get('/api/users/options', authenticate, requireAdmin, async (_req, res) => {
   try {
     console.log('Received request for user options');
 
@@ -509,10 +622,18 @@ app.get('/api/users/options', async (_req, res) => {
 });
 
 // 获取仪表盘统计数据
-app.get('/api/dashboard/stats', async (req, res) => {
+app.get('/api/dashboard/stats', authenticate, async (req: AuthenticatedRequest, res) => {
   try {
-    const userId = req.query.userId as string;
-    const isAdmin = req.query.isAdmin === 'true';
+    const authUser = req.authUser;
+    if (!authUser) {
+      return res.status(401).json({
+        success: false,
+        error: '未登录或登录已过期',
+      });
+    }
+
+    const userId = authUser.id.toString();
+    const isAdmin = isAdminUser(authUser);
 
     console.log('获取仪表盘统计数据:', { userId, isAdmin });
 
@@ -540,7 +661,7 @@ app.get('/api/dashboard/stats', async (req, res) => {
 
       // 本月充值
       const [incomeResult] = await pool.query<RowDataPacket[]>(
-        `SELECT COALESCE(SUM(amount), 0) as monthlyIncome FROM transactions 
+        `SELECT COALESCE(SUM(amount), 0) as monthlyIncome FROM transactions
          WHERE type = 'increase' AND created_at >= ? AND created_at <= ?`,
         [firstDayOfMonth, lastDayOfMonth]
       );
@@ -548,7 +669,7 @@ app.get('/api/dashboard/stats', async (req, res) => {
 
       // 本月消费
       const [expenseResult] = await pool.query<RowDataPacket[]>(
-        `SELECT COALESCE(SUM(amount), 0) as monthlyExpense FROM transactions 
+        `SELECT COALESCE(SUM(amount), 0) as monthlyExpense FROM transactions
          WHERE type = 'decrease' AND created_at >= ? AND created_at <= ?`,
         [firstDayOfMonth, lastDayOfMonth]
       );
@@ -556,7 +677,7 @@ app.get('/api/dashboard/stats', async (req, res) => {
 
       // 最近6个月的收支趋势
       const [trendsResult] = await pool.query<RowDataPacket[]>(
-        `SELECT 
+        `SELECT
            DATE_FORMAT(created_at, '%Y-%m') as month,
            type,
            SUM(amount) as total
@@ -597,7 +718,7 @@ app.get('/api/dashboard/stats', async (req, res) => {
 
       // 本月充值
       const [incomeResult] = await pool.query<RowDataPacket[]>(
-        `SELECT COALESCE(SUM(amount), 0) as monthlyIncome FROM transactions 
+        `SELECT COALESCE(SUM(amount), 0) as monthlyIncome FROM transactions
          WHERE user_id = ? AND type = 'increase' AND created_at >= ? AND created_at <= ?`,
         [userId, firstDayOfMonth, lastDayOfMonth]
       );
@@ -605,7 +726,7 @@ app.get('/api/dashboard/stats', async (req, res) => {
 
       // 本月消费
       const [expenseResult] = await pool.query<RowDataPacket[]>(
-        `SELECT COALESCE(SUM(amount), 0) as monthlyExpense FROM transactions 
+        `SELECT COALESCE(SUM(amount), 0) as monthlyExpense FROM transactions
          WHERE user_id = ? AND type = 'decrease' AND created_at >= ? AND created_at <= ?`,
         [userId, firstDayOfMonth, lastDayOfMonth]
       );
@@ -613,7 +734,7 @@ app.get('/api/dashboard/stats', async (req, res) => {
 
       // 最近6个月的收支趋势
       const [trendsResult] = await pool.query<RowDataPacket[]>(
-        `SELECT 
+        `SELECT
            DATE_FORMAT(created_at, '%Y-%m') as month,
            type,
            SUM(amount) as total
@@ -654,7 +775,7 @@ app.get('/api/dashboard/stats', async (req, res) => {
     res.status(500).json({
       success: false,
       message: '获取统计数据失败',
-      error: error.message,
+      error: error instanceof Error ? error.message : 'Internal server error',
     });
   }
 });
@@ -662,4 +783,4 @@ app.get('/api/dashboard/stats', async (req, res) => {
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 8001;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on port ${PORT}, listening on all interfaces`);
-}); 
+});

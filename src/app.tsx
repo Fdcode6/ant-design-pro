@@ -1,14 +1,12 @@
-import { AvatarDropdown, AvatarName, Footer, Question, SelectLang } from '@/components';
-import { currentUser as queryCurrentUser } from '@/services/ant-design-pro/api';
+import { AvatarDropdown, AvatarName, Footer, SelectLang } from '@/components';
 import { LinkOutlined } from '@ant-design/icons';
 import type { Settings as LayoutSettings } from '@ant-design/pro-components';
 import { SettingDrawer } from '@ant-design/pro-components';
 import type { RunTimeLayoutConfig, RequestConfig } from '@umijs/max';
 import { history, Link } from '@umijs/max';
-import React, { useState } from 'react';
+import React from 'react';
 import defaultSettings from '../config/defaultSettings';
 import { errorConfig } from './requestErrorConfig';
-import { message } from 'antd';
 
 const isDev = process.env.NODE_ENV === 'development';
 const loginPath = '/user/login';
@@ -24,17 +22,15 @@ export async function getInitialState(): Promise<{
 }> {
   const fetchUserInfo = async () => {
     try {
-      // 从localStorage获取用户ID
-      const userId = localStorage.getItem('userId');
-      console.log('从localStorage获取到的userId:', userId);
+      const accessToken = localStorage.getItem('accessToken');
 
-      if (!userId) {
-        console.error('没有找到userId，无法获取用户信息');
+      if (!accessToken) {
+        localStorage.removeItem('userId');
         return undefined;
       }
 
       // 使用相对路径，让浏览器自动处理域名和端口
-      const apiUrl = `/api/currentUser?userId=${userId}`;
+      const apiUrl = `/api/currentUser`;
       console.log('请求用户信息, URL:', apiUrl);
 
       try {
@@ -42,12 +38,17 @@ export async function getInitialState(): Promise<{
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
-            'Accept': 'application/json'
+            Accept: 'application/json',
+            Authorization: `Bearer ${accessToken}`,
           },
         });
 
         if (!response.ok) {
           console.error('请求用户信息失败, 状态码:', response.status);
+          if (response.status === 401 || response.status === 403) {
+            localStorage.removeItem('accessToken');
+            localStorage.removeItem('userId');
+          }
           throw new Error(`请求失败: ${response.status}`);
         }
 
@@ -89,8 +90,7 @@ export async function getInitialState(): Promise<{
 
 // ProLayout 支持的api https://procomponents.ant.design/components/layout
 export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) => {
-  // 保存当前用户角色状态
-  const [access] = useState(initialState?.currentUser?.access);
+  const access = initialState?.currentUser?.access;
 
   return {
     actionsRender: () => [<SelectLang key="SelectLang" />],

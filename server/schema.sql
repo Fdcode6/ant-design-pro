@@ -20,6 +20,21 @@ CREATE TABLE IF NOT EXISTS transactions (
   balance DECIMAL(10, 2) NOT NULL,
   reason TEXT NOT NULL,
   operator VARCHAR(50) NOT NULL,
+  operator_id INT NULL,
+  operator_username VARCHAR(50) NULL,
+  operator_role VARCHAR(20) NULL,
+  operator_ip VARCHAR(64) NULL,
+  operator_user_agent VARCHAR(255) NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id)
-); 
+);
+
+-- 已退出登录但尚未过期的访问令牌撤销表
+CREATE TABLE IF NOT EXISTS revoked_tokens (
+  token_hash CHAR(64) PRIMARY KEY,
+  user_id INT NULL,
+  username VARCHAR(50) NULL,
+  expires_at TIMESTAMP NOT NULL,
+  revoked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_revoked_tokens_expires_at (expires_at)
+);
