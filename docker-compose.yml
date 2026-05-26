@@ -1,60 +1,71 @@
-# Docker Compose 配置文件 - 千寻云仓通
+# 千寻云仓通生产部署拓扑
+#
+# 目标：
+# - 数据库数据保存在 Docker 命名卷 yuncang_mysql_data 中。
+# - 应用升级只重建 backend/frontend，不把数据库打进应用镜像。
+# - 数据库端口默认只绑定 127.0.0.1，避免公网暴露。
 
 services:
-  # MySQL 数据库
   db:
-    image: mysql:8.0
-    container_name: yuncang-db
+    image: mariadb:10.5
+    container_name: ${DB_CONTAINER_NAME:-yuncang-db}
     restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: yuncang
-      MYSQL_USER: yuncang
-      MYSQL_PASSWORD: NeGAj5awAn7bfWit
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?MARIADB_ROOT_PASSWORD is required}
+      MARIADB_DATABASE: ${MARIADB_DATABASE:-yuncang}
+      MARIADB_USER: ${MARIADB_USER:-yuncang}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:?MARIADB_PASSWORD is required}
     ports:
-      - "3306:3306"
+      - "127.0.0.1:${DB_PORT:-13306}:3306"
     volumes:
-      - mysql_data:/var/lib/mysql
+      - yuncang_mysql_data:/var/lib/mysql
       - ./server/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./server/init-data.sql:/docker-entrypoint-initdb.d/02-init-data.sql:ro
-    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
+      test:
+        [
+          "CMD-SHELL",
+          "mariadb-admin ping -h 127.0.0.1 -uroot -p\"$${MARIADB_ROOT_PASSWORD}\" --silent",
+        ]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 20s
 
-  # 后端 API 服务
   backend:
     build:
       context: .
       dockerfile: Dockerfile.backend
-    container_name: yuncang-backend
+    image: ${BACKEND_IMAGE:-yuncang-backend:local}
+    container_name: ${BACKEND_CONTAINER_NAME:-yuncang-backend}
     restart: unless-stopped
     environment:
       NODE_ENV: production
       PORT: 8001
       DB_HOST: db
-      DB_USER: yuncang
-      DB_PASSWORD: NeGAj5awAn7bfWit
-      DB_DATABASE: yuncang
-    ports:
-      - "8001:8001"
+      DB_USER: ${MARIADB_USER:-yuncang}
+      DB_PASSWORD: ${MARIADB_PASSWORD:?MARIADB_PASSWORD is required}
+      DB_DATABASE: ${MARIADB_DATABASE:-yuncang}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
     depends_on:
       db:
         condition: service_healthy
 
-  # 前端 Nginx 服务
   frontend:
     build:
       context: .
       dockerfile: Dockerfile.frontend
-    container_name: yuncang-frontend
+    image: ${FRONTEND_IMAGE:-yuncang-frontend:local}
+    container_name: ${FRONTEND_CONTAINER_NAME:-yuncang-frontend}
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "${FRONTEND_PORT:-8080}:80"
     depends_on:
       - backend
 
 volumes:
-  mysql_data:
+  yuncang_mysql_data:
+    name: ${DB_VOLUME_NAME:-yuncang_mysql_data}
